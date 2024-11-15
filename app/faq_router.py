@@ -18,7 +18,7 @@ from app.utils import stream_words
 router = APIRouter()
 
 # Choose the database backend (SQLite or MongoDB)
-db_backend = "mongo"  # Change to "mongodb" to switch to MongoDB
+db_backend = "mongodb"  # Change to "mongodb" to switch to MongoDB
 
 
 def get_db() -> DBInterface:

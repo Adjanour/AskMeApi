@@ -6,6 +6,8 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
+RUN sudo apt-get install libblas-dev liblapack-dev
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download Sentence Transformers model

@@ -7,19 +7,20 @@ from sentence_transformers import SentenceTransformer
 import spacy
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Load the ML model
-    # Load Sentence Transformers
-    sentence_model_name = "all-MiniLM-L6-v2"
-    sentence_transformer = SentenceTransformer(sentence_model_name)
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     # Load the ML model
+#     # Load Sentence Transformers
+#     sentence_model_name = "all-MiniLM-L6-v2"
+#     sentence_transformer = SentenceTransformer(sentence_model_name)
+#
+#     # Load SpaCy
+#     nlp = spacy.load("en_core_web_md")
+#     yield
 
-    # Load SpaCy
-    nlp = spacy.load("en_core_web_md")
-    yield
 
-
-app = FastAPI(lifespan=lifespan)
+# app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
