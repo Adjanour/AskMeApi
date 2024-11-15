@@ -1,12 +1,17 @@
-from pymongo import MongoClient
-from db_interface import DBInterface
-from utils import generate_api_key  # Import the generate_api_key function
 from typing import List, Dict, Optional
+
+from pymongo import MongoClient
+from pymongo.server_api import ServerApi
+
+from app.db_interface import DBInterface
+from app.utils import generate_api_key  # Import the generate_api_key function
+
+uri = "mongodb+srv://adjanour:xpN8EjMWNPLaZWaY@cluster0.lrshh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 
 class MongoDB(DBInterface):
-    def __init__(self, db_uri: str = "mongodb://localhost:27017", db_name: str = "multitenant_chatbot"):
-        self.client = MongoClient(db_uri)
+    def __init__(self, db_uri: str = uri, db_name: str = "multitenant_chatbot"):
+        self.client = MongoClient(db_uri, server_api=ServerApi('1'))
         self.db = self.client[db_name]
 
     def create_tenant(self, name: str, config_settings: Optional[Dict[str, str]] = None) -> Dict:
@@ -25,7 +30,8 @@ class MongoDB(DBInterface):
 
     def add_faq(self, tenant_id: str, question: str, answer: str, embedding: bytes) -> None:
         faqs_collection = self.db["faqs"]
-        faqs_collection.insert_one({"tenant_id": tenant_id, "question": question, "answer": answer, "embedding": embedding})
+        faqs_collection.insert_one(
+            {"tenant_id": tenant_id, "question": question, "answer": answer, "embedding": embedding})
 
     def get_faqs(self, tenant_id: str) -> List[Dict[str, str]]:
         faqs_collection = self.db["faqs"]

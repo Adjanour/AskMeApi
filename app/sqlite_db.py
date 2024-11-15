@@ -1,6 +1,6 @@
 import sqlite3
-from db_interface import DBInterface
-from utils import generate_api_key  # Import the generate_api_key function
+from app.db_interface import DBInterface
+from app.utils import generate_api_key  # Import the generate_api_key function
 from typing import List, Dict, Optional
 
 

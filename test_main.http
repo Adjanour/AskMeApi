@@ -9,7 +9,7 @@ GET http://127.0.0.1:8000/hello/User
 Accept: application/json
 
 ###
-POST http://127.0.0.1:8085/api/create-tenant/
+POST http://127.0.0.1:8086/api/create-tenant/
 Content-Type: application/json
 
 {
@@ -17,3 +17,10 @@ Content-Type: application/json
     "config_settings": {"key1": "value1", "key2": "value2"}
 }
 
+###
+POST http://127.0.0.1:8085/api/ask
+Content-Type: application/json
+
+{
+    "question": "What is the weather today?"
+}

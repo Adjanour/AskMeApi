@@ -1,20 +1,24 @@
 # app/faq_router.py
 import json
-import sqlite3
+from io import BytesIO
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Security
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from fastapi.security import APIKeyHeader
 import csv
-from embeddings import EmbeddingsHandler, LLMHandler
-from models import TenantRequest
-from sqlite_db import SQLiteDB
-from mongodb_db import MongoDB
-from db_interface import DBInterface
+
+from starlette.responses import StreamingResponse
+
+from app.embeddings import EmbeddingsHandler, LLMHandler
+from app.models import TenantRequest, QueryRequest
+from app.sqlite_db import SQLiteDB
+from app.mongodb_db import MongoDB
+from app.db_interface import DBInterface
+from app.utils import stream_words
 
 router = APIRouter()
 
 # Choose the database backend (SQLite or MongoDB)
-db_backend = "sqlite"  # Change to "mongodb" to switch to MongoDB
+db_backend = "mongo"  # Change to "mongodb" to switch to MongoDB
 
 
 def get_db() -> DBInterface:
@@ -22,6 +26,7 @@ def get_db() -> DBInterface:
         return SQLiteDB()
     elif db_backend == "mongodb":
         return MongoDB()
+
 
 
 api_key_header = APIKeyHeader(name="X-API-Key")
@@ -46,7 +51,8 @@ def get_api_key(api_key: str = Depends(api_key_header), db: DBInterface = Depend
 
 # FastAPI route for uploading FAQ data
 @router.post("/upload-faq")
-async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_api_key),db: DBInterface = Depends(get_db)):
+async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_api_key),
+                     db: DBInterface = Depends(get_db)):
     try:
         # Here, the tenant_id is already validated by get_api_key
         if tenant_id is None:
@@ -56,9 +62,11 @@ async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_
             faq_data = json.load(file.file)
         elif file.filename.endswith(".csv"):
             faq_data = []
-            reader = csv.DictReader(file.file)
+            file_like_object = BytesIO(await file.read())
+            reader = csv.DictReader(file_like_object.read().decode('utf-8').splitlines())
             for row in reader:
                 faq_data.append(row)
+
         else:
             raise HTTPException(status_code=400, detail="File format not supported")
 
@@ -72,21 +80,27 @@ async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/query-faq")
-async def query_faq(query: str, api_key: str):
-    tenant_id = get_tenant_by_api_key(api_key)
+@router.post("/ask")
+async def query_faq(query: QueryRequest, db: DBInterface = Depends(get_db), tenant_id: int = Depends(get_api_key)):
     if tenant_id is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    embedding_handler = EmbeddingsHandler()
+    embedding_handler = EmbeddingsHandler(db=db)
     llm_handler = LLMHandler()
-    similar_faqs = embedding_handler.find_similar_faqs(query)
+    similar_faqs = embedding_handler.find_similar_faqs(query.question, tenant_id)
 
+    print(similar_faqs)
+    # llm_handler.stream_llama_response(prompt)
+    #
     if not similar_faqs:
         raise HTTPException(status_code=404, detail="No similar FAQs found")
 
-    prompt = llm_handler.generate_llama_prompt(similar_faqs, query)
-    llm_handler.stream_llama_response(prompt)
+    prompt = llm_handler.generate_llama_prompt(similar_faqs, query.question, query.conversation_history)
+
+    return StreamingResponse(
+        content=stream_words(similar_faqs[0]["answer"], 0.2),
+        media_type="text/event-stream"
+    )
 
 
 @router.post("/create-tenant")

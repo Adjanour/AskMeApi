@@ -5,7 +5,7 @@ from utils import generate_api_key  # Import the generate_api_key function
 
 # Function to get a new database connection for each request
 def get_db():
-    conn = sqlite3.connect("multitenant_chatbot.db")
+    conn = sqlite3.connect("../multitenant_chatbot.db")
     conn.row_factory = sqlite3.Row  # To access columns by name (e.g. row['name'])
     try:
         yield conn
@@ -16,7 +16,7 @@ def get_db():
 # Create tables if they don’t exist
 def initialize_db():
     # You'll need to call this function at app startup to create tables if they don't exist
-    with sqlite3.connect("multitenant_chatbot.db") as conn:
+    with sqlite3.connect("../multitenant_chatbot.db") as conn:
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS tenants (id INTEGER PRIMARY KEY, name TEXT, api_key TEXT UNIQUE)")
         cursor.execute(

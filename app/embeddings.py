@@ -1,15 +1,15 @@
 import json
 import pickle
 import numpy as np
-import requests
 import faiss
 import spacy
-import sqlite3
 from functools import lru_cache
-from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Tuple, Any
 
-from db_interface import DBInterface
+from ollama import AsyncClient
+from sentence_transformers import SentenceTransformer
+from typing import List, Dict, Any
+
+from app.db_interface import DBInterface
 
 # Initialize spaCy English model for NLP
 nlp = spacy.load("en_core_web_sm")
@@ -95,36 +95,52 @@ class EmbeddingsHandler:
 
 class LLMHandler:
     @staticmethod
-    def generate_llama_prompt(similar_faqs: List[Dict[str, Any]], user_query: str) -> str:
-        """Generate prompt for LLM using similar FAQs."""
-        context = "\n\n".join([f"Q: {faq['question']}\nA: {faq['answer']}" for faq in similar_faqs])
+    def generate_llama_prompt(
+            similar_faqs: List[Dict[str, Any]],
+            user_query: str,
+            conversation_history: List[Dict[str, str]] = []
+    ) -> str:
+        """Generate a focused prompt for the LLM using FAQs and conversation history for accurate, relevant responses."""
+
+        # Concatenate Q&A pairs from similar FAQs to form the context
+        faq_context = "\n\n".join([f"Q: {faq['question']}\nA: {faq['answer']}" for faq in similar_faqs])
+
+        # Format the conversation history context
+        conversation_context = "\n".join(
+            [f"{message['role'].capitalize()}: {message['content']}" for message in conversation_history])
+
+        # Structured and targeted prompt
         prompt = (
-            f"You are a helpful and friendly customer support chatbot.\n"
-            f"Use the following FAQ entries to provide an accurate answer to the user's question.\n\n"
-            f"{context}\n\n"
-            f"User Question: {user_query}\n\n"
-            f"Answer based on the information above:"
+            f"You are A customer support chatbot, designed to give precise, relevant answers based on the provided FAQ. "
+            f"Use the FAQ entries and conversation history below to craft a direct, helpful response to the user's question. "
+            f"If the exact answer isn't in the FAQ, infer the best possible answer or advise on next steps.\n\n"
+
+            f"FAQs:\n{faq_context}\n\n"
+            f"Conversation so far:\n{conversation_context}\n\n"
+
+            f"User question: {user_query}\n\n"
+
+            f"Please provide a clear answer based on the information above. "
+            f"Use a polite, concise tone and avoid unnecessary elaboration."
         )
+
         return prompt
 
     @staticmethod
-    def stream_llama_response(prompt: str, model: str = "llama3.2:1b", suffix: str = "") -> str:
+    async def stream_llama_response(prompt: str, model: str = "llama3.2:1b", suffix: str = "") -> str:
         """Stream LLM response for a given prompt."""
-        url = "http://localhost:11434/api/generate"  # Update with actual endpoint
-        payload = {"model": model, "prompt": prompt, "suffix": suffix}
-
         try:
-            response = requests.post(url, json=payload, stream=True)
-            response.raise_for_status()
-
-            # Stream response in chunks
-            response_text = ""
-            for chunk in response.iter_content(chunk_size=1024):
-                decoded_chunk = chunk.decode('utf-8')
-                response_text += decoded_chunk
-                response_json = json.loads(decoded_chunk)
-                generated_text = response_json.get("response", "")
-                yield generated_text
-
-        except requests.exceptions.RequestException as e:
-            yield f"Error: {e}"
+            print(prompt)
+            # Assuming AsyncClient.chat is asynchronous
+            async for part in await AsyncClient().chat(
+                    model= model,
+                    messages=[{'role': 'user', 'content': prompt}],
+                    stream=True
+            ):
+                # print(part['message']['content'], end='', flush=True)
+                print(json.dumps(part['message']['content']))
+                # yield response as json
+                yield f"data: {json.dumps(part['message']['content'])}\n\n"
+                # yield f"data: {part['message']['content']}"
+        except Exception as e:
+            yield f"data: Error occurred while streaming: {e}\n\n"
