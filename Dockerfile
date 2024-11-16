@@ -32,7 +32,7 @@ RUN python -m spacy download en_core_web_md
 COPY . .
 
 # Expose application port
-EXPOSE 8000
+EXPOSE 8080
 
 # Start the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "4"]
