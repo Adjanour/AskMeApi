@@ -1,5 +1,7 @@
+import os
 from contextlib import asynccontextmanager
 
+import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from app.faq_router import router as faq_router
@@ -45,6 +47,5 @@ async def chatbot_status():
 app.include_router(faq_router, prefix="/api")
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
