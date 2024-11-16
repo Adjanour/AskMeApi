@@ -1,26 +1,30 @@
-# app/faq_router.py
 import json
-from io import BytesIO
-from typing import Optional
+from typing import Optional, AsyncGenerator
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from fastapi.security import APIKeyHeader
 import csv
+import logging
 
 from starlette.responses import StreamingResponse
 
 from app.embeddings import EmbeddingsHandler, LLMHandler
 from app.models import TenantRequest, QueryRequest
 from app.sqlite_db import SQLiteDB
-from app.mongodb_db import MongoDB
+from app.mongodb_db import MongoDBAsync as MongoDB
 from app.db_interface import DBInterface
 from app.utils import stream_words
 
 router = APIRouter()
 
-# Choose the database backend (SQLite or MongoDB)
-db_backend = "mongodb"  # Change to "mongodb" to switch to MongoDB
+# Logging setup
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Configuration
+db_backend = "mongodb"  # Use "sqlite" or "mongodb"
 
 
+# Database instance singleton
 def get_db() -> DBInterface:
     if db_backend == "sqlite":
         return SQLiteDB()
@@ -28,91 +32,113 @@ def get_db() -> DBInterface:
         return MongoDB()
 
 
-
 api_key_header = APIKeyHeader(name="X-API-Key")
 
 
 # Function to get the tenant by API key
-def get_tenant_by_api_key(api_key: str, db: DBInterface) -> Optional[int]:
-    print("db")
-    print(db)  # This will print the actual DB instance
-    return db.get_tenant_by_api_key(api_key)
+async def get_tenant_by_api_key(api_key: str, db: DBInterface) -> Optional[str]:
+    return await db.get_tenant_by_api_key(api_key)
 
 
-# Function to get API key and validate
-def get_api_key(api_key: str = Depends(api_key_header), db: DBInterface = Depends(get_db)):
-    print("db1")
-    print(db)  # This will print the actual DB instance
-    tenant_id = get_tenant_by_api_key(api_key, db)
+# Dependency to inject EmbeddingsHandler
+async def get_embeddings_handler(db: DBInterface = Depends(get_db)) -> EmbeddingsHandler:
+    return EmbeddingsHandler(db=db)
+
+
+# Dependency: Get and validate API key
+async def get_api_key(api_key: str = Depends(api_key_header), db: DBInterface = Depends(get_db)):
+    tenant_id = await get_tenant_by_api_key(api_key, db)
     if tenant_id is None:
         raise HTTPException(status_code=403, detail="Invalid API Key")
-    return tenant_id  # Return the tenant ID
+    return tenant_id
 
 
-# FastAPI route for uploading FAQ data
+# Utility: Stream the lines from a CSV file asynchronously
+async def stream_csv_lines(file: UploadFile) -> AsyncGenerator[dict, None]:
+    file_content = (await file.read()).decode("utf-8")
+    reader = csv.DictReader(file_content.splitlines())
+    for row in reader:
+        yield row
+
+
+# Upload FAQ endpoint
 @router.post("/upload-faq")
-async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_api_key),
-                     db: DBInterface = Depends(get_db)):
+async def upload_faq(
+        file: UploadFile = File(...),
+        tenant_id: str = Depends(get_api_key),
+        db: DBInterface = Depends(get_db)
+):
     try:
-        # Here, the tenant_id is already validated by get_api_key
+        # Ensure tenant_id is valid
         if tenant_id is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
 
+        # Validate file format and load data
         if file.filename.endswith(".json"):
             faq_data = json.load(file.file)
         elif file.filename.endswith(".csv"):
-            faq_data = []
-            file_like_object = BytesIO(await file.read())
-            reader = csv.DictReader(file_like_object.read().decode('utf-8').splitlines())
-            for row in reader:
-                faq_data.append(row)
-
+            faq_data = [row async for row in stream_csv_lines(file)]
         else:
-            raise HTTPException(status_code=400, detail="File format not supported")
+            raise HTTPException(status_code=400, detail="Unsupported file format")
 
-        # Processing embeddings
+        # Validate data structure
+        required_fields = {"question", "answer"}
+        for faq in faq_data:
+            if not required_fields.issubset(faq):
+                raise HTTPException(status_code=400, detail="Missing required fields in the data")
+
+        print("processing faq data", faq_data)
+        # Process and store embeddings
         embeddings_handler = EmbeddingsHandler(db=db)
-        embeddings_handler.store_faq_embeddings(faq_data, tenant_id)
+        await embeddings_handler.store_faq_embeddings(faq_data, tenant_id)
 
         return {"message": "FAQ data uploaded and processed successfully"}
 
     except Exception as e:
+        logger.error("Error during FAQ upload", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/ask")
-async def query_faq(query: QueryRequest, db: DBInterface = Depends(get_db), tenant_id: int = Depends(get_api_key)):
-    if tenant_id is None:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-    embedding_handler = EmbeddingsHandler(db=db)
-    llm_handler = LLMHandler()
-    similar_faqs = embedding_handler.find_similar_faqs(query.question, tenant_id)
-
-    print(similar_faqs)
-    # llm_handler.stream_llama_response(prompt)
-    #
-    if not similar_faqs:
-        raise HTTPException(status_code=404, detail="No similar FAQs found")
-
-    prompt = llm_handler.generate_llama_prompt(similar_faqs, query.question, query.conversation_history)
-
-    return StreamingResponse(
-        content=stream_words(similar_faqs[0]["answer"], 0.2),
-        media_type="text/event-stream"
-    )
-
-
-@router.post("/create-tenant")
-async def create_tenant_endpoint(tenant_request: TenantRequest, db: DBInterface = Depends(get_db)):
+async def query_faq(
+        query: QueryRequest,
+        embeddings_handler: EmbeddingsHandler = Depends(get_embeddings_handler),
+        tenant_id: str = Depends(get_api_key)
+):
     try:
-        name = tenant_request.name
-        config_settings = tenant_request.config_settings
-        print(f"Creating tenant: {name}")
-        tenant_info = db.create_tenant(name, config_settings)
+        # Find similar FAQs using embeddings
+        similar_faqs = await embeddings_handler.find_similar_faqs(query.question, tenant_id)
+
+        if not similar_faqs:
+            raise HTTPException(status_code=404, detail="No similar FAQs found")
+
+        # Stream response
+        return StreamingResponse(
+            content=stream_words(similar_faqs[0]["answer"], 0.01),
+            media_type="text/event-stream"
+        )
+
+    except Exception as e:
+        logger.error("Error during FAQ query", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process query")
+
+
+# Create tenant endpoint
+@router.post("/create-tenant")
+async def create_tenant_endpoint(
+        tenant_request: TenantRequest,
+        db: DBInterface = Depends(get_db)
+):
+    try:
+        logger.info(f"Creating tenant: {tenant_request.name}")
+        tenant_info = await db.create_tenant(tenant_request.name, tenant_request.config_settings)
         return {
             "message": "Tenant created successfully",
-            "tenant_info": tenant_info  # Return API key and other details
+            "tenant_info": tenant_info
         }
+    except ValueError as ve:
+        logger.error("Validation error during tenant creation", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
+        logger.error("Error during tenant creation", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to create tenant")

@@ -8,23 +8,19 @@ from functools import lru_cache
 from ollama import AsyncClient
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any
-
 from app.db_interface import DBInterface
 
-# Initialize spaCy English model for NLP
-nlp = spacy.load("en_core_web_sm")
-
-# Initialize Sentence Transformer model for embeddings
+# Load models globally (to avoid redundant initializations)
+nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])  # Disable unused components
 embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 
 
-# Initialize FAISS index
+# EmbeddingsHandler for FAQ management and similarity search
 class EmbeddingsHandler:
-
     def __init__(self, db: DBInterface, embedding_dim: int = 384):
         self.db = db
         self.embedding_dim = embedding_dim
-        self.index = faiss.IndexFlatL2(self.embedding_dim)  # For in-memory search
+        self.indexes = {}  # Tenant-specific FAISS indexes
 
     @staticmethod
     def preprocess_text(text: str) -> str:
@@ -33,53 +29,63 @@ class EmbeddingsHandler:
         tokens = [token.lemma_ for token in doc if not token.is_stop and token.is_alpha]
         return " ".join(tokens)
 
-    def embed_text(self, text: str) -> np.ndarray:
-        """Generate embedding for the input text."""
-        return embedding_model.encode([text])[0]
+    @staticmethod
+    def preprocess_texts(texts: List[str]) -> List[str]:
+        """Batch preprocess texts."""
+        docs = nlp.pipe(text.lower() for text in texts)
+        return [" ".join(token.lemma_ for token in doc if not token.is_stop and token.is_alpha) for doc in docs]
 
-    def store_faq_embeddings(self, faqs: List[Dict[str, str]], tenant_id: int):
-        """Embed and store FAQs in the database with tenant association."""
-        processed_faqs = [
-            {
-                "question": faq["question"],
-                "answer": faq["answer"],
-                "processed_question": self.preprocess_text(faq["question"]),
-                "processed_answer": self.preprocess_text(faq["answer"]),
-            }
-            for faq in faqs
-        ]
+    @staticmethod
+    def embed_texts(texts: List[str]) -> np.ndarray:
+        """Batch embed multiple texts."""
+        return embedding_model.encode(texts)
 
-        for faq in processed_faqs:
-            question_embedding = self.embed_text(faq["processed_question"])
-            answer_embedding = self.embed_text(faq["processed_answer"])
+    async def store_faq_embeddings(self, faqs: List[Dict[str, str]], tenant_id: str):
+        """Embed and store FAQs in the database."""
+        processed_questions = self.preprocess_texts([faq["question"] for faq in faqs])
+        print("processed_questions", processed_questions)
+        embeddings = self.embed_texts(processed_questions)
+        print("embeddings", embeddings)
 
-            # Use DBInterface method to store FAQs
-            self.db.add_faq(
-                tenant_id,
-                faq["question"],
-                faq["answer"],
-                pickle.dumps(question_embedding)
-            )
+        await self.db.add_faq_bulk(tenant_id, faqs, embeddings)
+        #
+        # for faq, embedding in zip(faqs, embeddings):
+        #     print("faq", faq)
+        #     print("embedding", embedding)
+        #     await self.db.add_faq(
+        #         tenant_id,
+        #         faq["question"],
+        #         faq["answer"],
+        #         pickle.dumps(embedding)
+        #     )
 
-    @lru_cache(maxsize=128)  # Cache results to speed up retrieval of frequently searched queries
-    def load_faq_embeddings(self, tenant_id: int):
-        """Load embeddings for a given tenant ID from the database."""
-        faqs = self.db.get_faqs(tenant_id)  # Use DBInterface method to get FAQs
-        question_embeddings = np.array([pickle.loads(faq["embedding"]) for faq in faqs])
+        return None
 
-        return faqs, question_embeddings
+    async def load_faq_embeddings(self, tenant_id: str):
+        """Load embeddings for a given tenant ID."""
+        faqs = await self.db.get_faqs(tenant_id)
+        embeddings = np.array([pickle.loads(faq["embedding"]) for faq in faqs])
+        return faqs, embeddings
 
-    def find_similar_faqs(self, query: str, tenant_id: int, top_k: int = 3) -> List[Dict[str, Any]]:
+    @lru_cache(128)
+    async def find_similar_faqs(self, query: str, tenant_id: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Find top similar FAQs for the given query."""
         processed_query = self.preprocess_text(query)
-        query_embedding = self.embed_text(processed_query).reshape(1, -1)
+        query_embedding = self.embed_texts([processed_query]).reshape(1, -1)
 
-        faqs, question_embeddings = self.load_faq_embeddings(tenant_id)
-        self.index.add(question_embeddings)  # Add embeddings to FAISS index for in-memory search
+        # Load or create tenant-specific FAISS index
+        if tenant_id not in self.indexes:
+            self.indexes[tenant_id] = faiss.IndexFlatL2(self.embedding_dim)
+            faqs, embeddings = await self.load_faq_embeddings(tenant_id)
+            self.indexes[tenant_id].add(embeddings)
+
+        index = self.indexes[tenant_id]
 
         # Perform similarity search
-        distances, indices = self.index.search(query_embedding, top_k)
-        results = [
+        distances, indices = index.search(query_embedding, top_k)
+        faqs, _ = await self.load_faq_embeddings(tenant_id)
+
+        return [
             {
                 "question": faqs[i]["question"],
                 "answer": faqs[i]["answer"],
@@ -88,11 +94,8 @@ class EmbeddingsHandler:
             for j, i in enumerate(indices[0])
         ]
 
-        # Clear index for next query (in-memory reset for different tenants or queries)
-        self.index.reset()
-        return results
 
-
+# LLMHandler for interacting with the LLM
 class LLMHandler:
     @staticmethod
     def generate_llama_prompt(
@@ -100,47 +103,31 @@ class LLMHandler:
             user_query: str,
             conversation_history: List[Dict[str, str]] = []
     ) -> str:
-        """Generate a focused prompt for the LLM using FAQs and conversation history for accurate, relevant responses."""
-
-        # Concatenate Q&A pairs from similar FAQs to form the context
+        """Generate a focused prompt for the LLM."""
         faq_context = "\n\n".join([f"Q: {faq['question']}\nA: {faq['answer']}" for faq in similar_faqs])
-
-        # Format the conversation history context
         conversation_context = "\n".join(
-            [f"{message['role'].capitalize()}: {message['content']}" for message in conversation_history])
+            [f"{msg['role'].capitalize()}: {msg['content']}" for msg in conversation_history]
+        )
 
-        # Structured and targeted prompt
         prompt = (
-            f"You are A customer support chatbot, designed to give precise, relevant answers based on the provided FAQ. "
-            f"Use the FAQ entries and conversation history below to craft a direct, helpful response to the user's question. "
-            f"If the exact answer isn't in the FAQ, infer the best possible answer or advise on next steps.\n\n"
-
+            f"You are a customer support chatbot designed to give precise answers based on the provided FAQ.\n\n"
             f"FAQs:\n{faq_context}\n\n"
             f"Conversation so far:\n{conversation_context}\n\n"
-
             f"User question: {user_query}\n\n"
-
-            f"Please provide a clear answer based on the information above. "
-            f"Use a polite, concise tone and avoid unnecessary elaboration."
+            f"Please provide a clear and concise answer based on the information above."
         )
 
         return prompt
 
     @staticmethod
-    async def stream_llama_response(prompt: str, model: str = "llama3.2:1b", suffix: str = "") -> str:
-        """Stream LLM response for a given prompt."""
+    async def stream_llama_response(prompt: str, model: str = "llama3.2:1b") -> str:
+        """Stream the LLM response."""
         try:
-            print(prompt)
-            # Assuming AsyncClient.chat is asynchronous
             async for part in await AsyncClient().chat(
-                    model= model,
+                    model=model,
                     messages=[{'role': 'user', 'content': prompt}],
                     stream=True
             ):
-                # print(part['message']['content'], end='', flush=True)
-                print(json.dumps(part['message']['content']))
-                # yield response as json
                 yield f"data: {json.dumps(part['message']['content'])}\n\n"
-                # yield f"data: {part['message']['content']}"
         except Exception as e:
             yield f"data: Error occurred while streaming: {e}\n\n"
