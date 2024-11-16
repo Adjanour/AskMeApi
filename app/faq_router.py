@@ -114,7 +114,7 @@ async def query_faq(
 
         # Stream response
         return StreamingResponse(
-            content=stream_words(similar_faqs[0]["answer"], 0.01),
+            content=stream_words(similar_faqs[0]["answer"], 0.1),
             media_type="text/event-stream"
         )
 
