@@ -46,6 +46,6 @@ async def chatbot_status():
 # Include routes
 app.include_router(faq_router, prefix="/api")
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+# if __name__ == "__main__":
+#     port = int(os.environ.get("PORT", 8000))
+#     uvicorn.run("app.main:app", host="0.0.0.0", port=port)

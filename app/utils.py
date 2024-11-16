@@ -22,4 +22,4 @@ async def stream_words(text, delay=1):
     for word in words:
         await asyncio.sleep(delay)  # Simulate delay between words
         # Format each word in SSE data format
-        yield f"data: {json.dumps(word +" ")}\n\n"
+        yield f"data: {json.dumps(word +' ')}\n\n"
