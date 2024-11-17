@@ -1,7 +1,4 @@
 import json
-import os
-
-import pinecone
 import numpy as np
 from ollama import AsyncClient
 from pinecone import Pinecone
