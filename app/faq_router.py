@@ -12,7 +12,7 @@ from app.models import TenantRequest, QueryRequest
 from app.sqlite_db import SQLiteDB
 from app.mongodb_db import MongoDBAsync as MongoDB
 from app.db_interface import DBInterface
-from app.utils import stream_words
+from app.utils import stream_words, safe_stream_words
 
 router = APIRouter()
 
@@ -111,10 +111,12 @@ async def query_faq(
 
         if not similar_faqs:
             raise HTTPException(status_code=404, detail="No similar FAQs found")
-
+        
+        #stream_words(similar_faqs[0]["answer"], 0.1)
+        prompt = LLMHandler.generate_llama_prompt(similar_faqs, query.question)
         # Stream response
         return StreamingResponse(
-            content=stream_words(similar_faqs[0]["answer"], 0.1),
+            content=safe_stream_words(similar_faqs[0]["answer"], delay=0.2),
             media_type="text/event-stream"
         )
 
