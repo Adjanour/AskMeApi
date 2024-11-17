@@ -23,3 +23,20 @@ async def stream_words(text, delay=1):
         await asyncio.sleep(delay)  # Simulate delay between words
         # Format each word in SSE data format
         yield f"data: {json.dumps(word +' ')}\n\n"
+
+
+import re
+
+def sanitize_id(text: str) -> str:
+    """
+    Sanitize a text to ensure it is ASCII-compliant for use as a vector ID.
+    Args:
+        text (str): The input text.
+    Returns:
+        str: Sanitized, ASCII-compliant string.
+    """
+    # Replace non-ASCII characters
+    sanitized = text.encode('ascii', 'ignore').decode()
+    # Replace spaces and other invalid characters with an underscore or hyphen
+    sanitized = re.sub(r'\W+', '_', sanitized)
+    return sanitized

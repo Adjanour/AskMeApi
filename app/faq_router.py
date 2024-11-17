@@ -28,22 +28,21 @@ def get_db() -> DBInterface:
         return MongoDB()
 
 
-
 api_key_header = APIKeyHeader(name="X-API-Key")
 
 
 # Function to get the tenant by API key
-def get_tenant_by_api_key(api_key: str, db: DBInterface) -> Optional[int]:
-    print("db")
-    print(db)  # This will print the actual DB instance
-    return db.get_tenant_by_api_key(api_key)
+async def get_tenant_by_api_key(api_key: str, db: DBInterface) -> Optional[int]:
+    return await db.get_tenant_by_api_key(api_key)
+
+
+def get_embeddings_handler(db: DBInterface = Depends(get_db)) -> EmbeddingsHandler:
+    return EmbeddingsHandler(db=db,index_name='askme')
 
 
 # Function to get API key and validate
-def get_api_key(api_key: str = Depends(api_key_header), db: DBInterface = Depends(get_db)):
-    print("db1")
-    print(db)  # This will print the actual DB instance
-    tenant_id = get_tenant_by_api_key(api_key, db)
+async def get_api_key(api_key: str = Depends(api_key_header), db: DBInterface = Depends(get_db)):
+    tenant_id = await get_tenant_by_api_key(api_key, db)
     if tenant_id is None:
         raise HTTPException(status_code=403, detail="Invalid API Key")
     return tenant_id  # Return the tenant ID
@@ -52,7 +51,7 @@ def get_api_key(api_key: str = Depends(api_key_header), db: DBInterface = Depend
 # FastAPI route for uploading FAQ data
 @router.post("/upload-faq")
 async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_api_key),
-                     db: DBInterface = Depends(get_db)):
+                     db: DBInterface = Depends(get_db),embeddings_handler: EmbeddingsHandler = Depends(get_embeddings_handler)):
     try:
         # Here, the tenant_id is already validated by get_api_key
         if tenant_id is None:
@@ -70,8 +69,6 @@ async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_
         else:
             raise HTTPException(status_code=400, detail="File format not supported")
 
-        # Processing embeddings
-        embeddings_handler = EmbeddingsHandler(db=db)
         embeddings_handler.store_faq_embeddings(faq_data, tenant_id)
 
         return {"message": "FAQ data uploaded and processed successfully"}
@@ -81,13 +78,12 @@ async def upload_faq(file: UploadFile = File(...), tenant_id: int = Depends(get_
 
 
 @router.post("/ask")
-async def query_faq(query: QueryRequest, db: DBInterface = Depends(get_db), tenant_id: int = Depends(get_api_key)):
+async def query_faq(query: QueryRequest, tenant_id: int = Depends(get_api_key),embeddings_handler: EmbeddingsHandler = Depends(get_embeddings_handler)):
+    print(query)
     if tenant_id is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    embedding_handler = EmbeddingsHandler(db=db)
-    llm_handler = LLMHandler()
-    similar_faqs = embedding_handler.find_similar_faqs(query.question, tenant_id)
+    similar_faqs = await embeddings_handler.find_similar_faqs(query.question, tenant_id)
 
     print(similar_faqs)
     # llm_handler.stream_llama_response(prompt)
@@ -95,7 +91,7 @@ async def query_faq(query: QueryRequest, db: DBInterface = Depends(get_db), tena
     if not similar_faqs:
         raise HTTPException(status_code=404, detail="No similar FAQs found")
 
-    prompt = llm_handler.generate_llama_prompt(similar_faqs, query.question, query.conversation_history)
+    # prompt = llm_handler.generate_llama_prompt(similar_faqs, query.question, query.conversation_history)
 
     return StreamingResponse(
         content=stream_words(similar_faqs[0]["answer"], 0.2),
