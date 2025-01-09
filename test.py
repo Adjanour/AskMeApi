@@ -15,12 +15,49 @@ NUM_REQUESTS = 10
 
 # Function to send a single request
 async def send_request(session, url, data):
+    """
+    Send an asynchronous HTTP POST request and measure its response time.
+    
+    Parameters:
+        session (aiohttp.ClientSession): An active HTTP client session for making requests
+        url (str): The target URL to send the POST request
+        data (dict): JSON payload to be sent with the request
+    
+    Returns:
+        tuple: A tuple containing:
+            - response_time (float): Total time taken for the request in seconds
+            - status (int): HTTP status code of the response
+    
+    Raises:
+        aiohttp.ClientError: If there are connection or request-related issues
+    """
     async with session.post(url, json=data) as response:
         response_time = response.elapsed.total_seconds() if hasattr(response, 'elapsed') else 0
         return response_time, response.status
 
 # Function to benchmark the API
 async def benchmark_api():
+    """
+    Benchmark an API by sending concurrent requests and collecting performance metrics.
+    
+    This asynchronous function sends multiple concurrent HTTP requests to a specified API endpoint,
+    tracks their response times, and calculates various statistical performance indicators.
+    
+    Metrics collected include:
+    - Total number of requests
+    - Number of failed requests
+    - Total execution time
+    - Average response time
+    - Maximum response time
+    - Minimum response time
+    - Response time standard deviation
+    
+    Uses aiohttp for asynchronous request handling and calculates statistics using the statistics module.
+    
+    Note:
+        - Requires global constants NUM_REQUESTS, API_URL, and REQUEST_PAYLOAD
+        - Prints performance metrics to console
+    """
     async with aiohttp.ClientSession() as session:
         # Track response times
         response_times = []

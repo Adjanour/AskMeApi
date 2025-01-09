@@ -13,6 +13,14 @@ router = APIRouter()
 
 # Dependency injection for EmbeddingsHandler
 async def get_embeddings_handler() -> EmbeddingsHandler:
+    """
+    Asynchronously create and return an EmbeddingsHandler for FAQ processing.
+    
+    This function initializes an EmbeddingsHandler by retrieving necessary models and creating a Pinecone index connection. It uses ModelSingleton to obtain a sentence transformer and spaCy NLP model, and establishes a connection to a Pinecone index named "askme".
+    
+    Returns:
+        EmbeddingsHandler: A configured handler for generating and searching FAQ embeddings, ready for use in query processing.
+    """
     sentence_transformer = ModelSingleton.get_sentence_transformer()
     spacy_nlp = ModelSingleton.get_spacy_nlp()
     pinecone_index = Pinecone(api_key="pcsk_5k4s6Z_4mMX815ACLEuHfTAKmiDk775uXiUd6NCvNrodqnfbcC3CRQtMTgcqaWGrmpnWTi").Index("askme")
@@ -22,6 +30,23 @@ async def get_embeddings_handler() -> EmbeddingsHandler:
 
 @router.post("/ask")
 async def query_faq(query: QueryRequest,embeddings_handler: EmbeddingsHandler = Depends(get_embeddings_handler)):
+    """
+    Process a user's FAQ query by finding and returning the most similar FAQ answer.
+    
+    Handles retrieving relevant FAQ answers using semantic similarity search with embeddings. 
+    If no similar FAQs are found, raises a 404 HTTP exception.
+    
+    Parameters:
+        query (QueryRequest): The user's query containing the question to search
+        embeddings_handler (EmbeddingsHandler, optional): Handler for processing FAQ embeddings. 
+            Defaults to dependency-injected instance from get_embeddings_handler().
+    
+    Returns:
+        dict: A dictionary containing the most relevant FAQ answer
+    
+    Raises:
+        HTTPException: 404 error if no similar FAQs are found for the given query
+    """
     print(query)
 
     similar_faqs = await embeddings_handler.find_similar_faqs(query.question,"6737dbd77a064a2893c302ad" )
