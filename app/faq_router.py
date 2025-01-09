@@ -15,9 +15,11 @@ router = APIRouter()
 
 # Dependency injection for EmbeddingsHandler
 async def get_embeddings_handler() -> EmbeddingsHandler:
+
+    api_key=os.environ.get("PINECONE_API_KEY")
     sentence_transformer = ModelSingleton.get_sentence_transformer()
     spacy_nlp = ModelSingleton.get_spacy_nlp()
-    pinecone_index = Pinecone(api_key=os.environ.get("PINECONE_API_KEY")).Index("askme")
+    pinecone_index = Pinecone(api_key).Index("askme")
     return EmbeddingsHandler(spacy_nlp, sentence_transformer, pinecone_index)
 
 

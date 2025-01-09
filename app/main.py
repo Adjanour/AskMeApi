@@ -3,11 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
-from sentence_transformers import SentenceTransformer
 from app.faq_router import router as faq_router
-import spacy
-import asyncio
-from functools import lru_cache, wraps
 
 from app.models import ModelSingleton
 
@@ -23,7 +19,8 @@ async def lifespan(app: FastAPI):
         raise
 
 # Initialize FastAPI app
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
+
 
 # Setup logging
 logger = logging.getLogger("uvicorn")

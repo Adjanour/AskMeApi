@@ -2,7 +2,7 @@ import asyncio
 
 import spacy
 from pydantic import BaseModel
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
 from sentence_transformers import SentenceTransformer
 
