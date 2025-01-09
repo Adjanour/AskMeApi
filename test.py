@@ -21,10 +21,11 @@ async def send_request(session, url, data):
 
 # Function to benchmark the API
 async def benchmark_api():
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         # Track response times
         response_times = []
-        failed_requests = 0
+        errors = {'timeout': 0, 'connection': 0, 'other': 0}
 
         # Record start time
         start_time = time.time()
@@ -35,13 +36,19 @@ async def benchmark_api():
             tasks.append(send_request(session, API_URL, REQUEST_PAYLOAD))
 
         # Run the tasks concurrently
-        for task in asyncio.as_completed(tasks):
-            response_time, status = await task
-            if status == 200:
-                response_times.append(response_time)
-            else:
-                failed_requests += 1
-
+        for coro in asyncio.as_completed(tasks):
+            try:
+                response_time, status = await coro
+                if status == 200:
+                    response_times.append(response_time)
+                else:
+                    errors['other'] += 1
+            except asyncio.TimeoutError:
+                errors['timeout'] += 1
+            except aiohttp.ClientError:
+                errors['connection'] += 1
+            except Exception:
+                errors['other'] += 1
         # Calculate statistics
         total_time = time.time() - start_time
         avg_response_time = mean(response_times) if response_times else 0
