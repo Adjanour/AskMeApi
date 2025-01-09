@@ -12,11 +12,13 @@ REQUEST_PAYLOAD = {
 }
 # Number of concurrent requests to make
 NUM_REQUESTS = 10
+REQUEST_TIMEOUT = 5000
 
 # Function to send a single request
 async def send_request(session, url, data):
+    start_time = time.time()
     async with session.post(url, json=data) as response:
-        response_time = response.elapsed.total_seconds() if hasattr(response, 'elapsed') else 0
+        response_time = time.time() - start_time
         return response_time, response.status
 
 # Function to benchmark the API
@@ -26,6 +28,7 @@ async def benchmark_api():
         # Track response times
         response_times = []
         errors = {'timeout': 0, 'connection': 0, 'other': 0}
+        failed_requests = 0
 
         # Record start time
         start_time = time.time()
@@ -43,12 +46,16 @@ async def benchmark_api():
                     response_times.append(response_time)
                 else:
                     errors['other'] += 1
+                    failed_requests = failed_requests + 1
             except asyncio.TimeoutError:
                 errors['timeout'] += 1
+                failed_requests = failed_requests + 1
             except aiohttp.ClientError:
                 errors['connection'] += 1
+                failed_requests = failed_requests + 1
             except Exception:
                 errors['other'] += 1
+                failed_requests = failed_requests + 1
         # Calculate statistics
         total_time = time.time() - start_time
         avg_response_time = mean(response_times) if response_times else 0

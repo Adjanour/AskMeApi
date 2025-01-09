@@ -15,9 +15,12 @@ from app.models import ModelSingleton
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize models asynchronously
-    await ModelSingleton.initialize()
-    yield
-    await ModelSingleton.uninitialize()
+    try:
+        await ModelSingleton.initialize()
+        yield
+    except Exception as e:
+        logger.error(f"Failed to initialize models: {str(e)}")
+        raise
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -45,11 +48,6 @@ async def root():
 async def chatbot_status():
     return {"status": "Chatbot is running"}
 
-
-@app.on_event("startup")
-async def startup_event():
-    # Initialize models asynchronously
-    await ModelSingleton.initialize()
 
 # Include FAQ Routes
 app.include_router(faq_router, prefix="/api")

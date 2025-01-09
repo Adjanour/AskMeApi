@@ -1,4 +1,6 @@
 # app/faq_router.py
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from pinecone import Pinecone
 
