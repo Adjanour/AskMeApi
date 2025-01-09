@@ -7,6 +7,9 @@ from app.faq_router import router as faq_router
 
 from app.models import ModelSingleton
 
+# Setup logging
+logger = logging.getLogger("uvicorn")
+logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,9 +25,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-# Setup logging
-logger = logging.getLogger("uvicorn")
-logger.setLevel(logging.INFO)
 
 # CORS Configuration
 allowed_domains = os.getenv("ALLOWED_ORIGINS", "*").split(",")
