@@ -58,7 +58,7 @@ class EmbeddingsHandler:
         """
         return self.sentence_transformer.encode([text])[0]
 
-    async def store_faq_embeddings(self, faqs: List[Dict[str, str]], tenant_id: int):
+    async def store_faq_embeddings(self, faqs: List[Dict[str, str]], tenant_id: str):
         """
         Embed and store FAQs in Pinecone index with tenant association.
 
