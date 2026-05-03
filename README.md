@@ -1,17 +1,15 @@
-# AskMeApi
+# ask-me-api
 
+An FAQ-style medical chatbot API.
 
+The idea: instead of a freeform chatbot that hallucinates, build something that matches questions to a structured FAQ dataset and returns answers from there. Constraints make it useful.
 
-## Overview
+## What's here
 
-This repository is maintained by @Adjanour.
+- API endpoints for question matching
+- FAQ dataset structure
+- Matching logic (keyword and semantic approaches)
 
-## Getting Started
+## Notes
 
-1. Clone the repository.
-2. Install dependencies if applicable.
-3. Run the project locally.
-
-## Contributing
-
-Open issues or pull requests for improvements.
+The kind of project that teaches you where your assumptions break. Medical Q&A is harder than it looks — scope matters.
